@@ -1,0 +1,588 @@
+{
+  "name": "News Autoposter (yt-dlp → Whisper → AI → Telegram)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "news",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -96,
+        0
+      ],
+      "id": "18a2d7d3-886a-4887-ae5e-4b6a89b71f25",
+      "name": "Webhook",
+      "webhookId": "bd8020ab-bc67-43fc-b40e-0157df08af34"
+    },
+    {
+      "parameters": {
+        "jsCode": "const { execSync } = require('child_process');\n\nconst filePath = $input.first().json.filePath;\nconst url = $input.first().json.url;\nconst id = $input.first().json.id;\n\n// === RETRY CONFIG ===\n// Паузы между попытками в секундах: 5с → 15с → 30с\n// Всего 4 попытки (1 основная + 3 повтора)\nconst retries = [5, 15, 30];\nlet lastError = '';\n\nfor (let attempt = 0; attempt <= retries.length; attempt++) {\n  try {\n    const result = execSync(`curl -s https://api.groq.com/openai/v1/audio/transcriptions \\\n      -H \"Authorization: Bearer put_your_key_here\" \\\n      -H \"Content-Type: multipart/form-data\" \\\n      -F file=\"@${filePath}\" \\\n      -F model=\"whisper-large-v3\" \\\n      -F language=\"ru\"`, {\n      timeout: 300000\n    });\n\n    const response = JSON.parse(result.toString());\n\n    // Проверка: API вернул ответ, но внутри JSON ошибка\n    if (response.error) {\n      throw new Error(response.error.message || JSON.stringify(response.error));\n    }\n\n    return [{\n      json: {\n        success: true,\n        transcript: response.text,\n        filePath: filePath,\n        url: url,\n        id: id\n      }\n    }];\n  } catch (error) {\n    lastError = error.message;\n    // === RETRY BACKOFF ===\n    // Если есть ещё попытки — ждём перед следующей\n    if (attempt < retries.length) {\n      execSync(`sleep ${retries[attempt]}`); // пауза 5с / 15с / 30с\n    }\n  }\n}\n\n// Все попытки исчерпаны — бросаем ошибку, чтобы сработал Error Workflow\nthrow new Error(`Whisper API failed after ${retries.length + 1} attempts: ${lastError}`);\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        -96
+      ],
+      "id": "84334bf2-46e2-4601-a54a-230ac9c4d38a",
+      "name": "Request to groq whisper"
+    },
+    {
+      "parameters": {
+        "jsCode": "const { execSync } = require('child_process');\n\n// Получаем данные из вебхука\nconst url = $input.first().json.body.url;\nconst id = $input.first().json.body.id || 'audio';\nconst outputPath = `/home/node/downloads/${id}.mp3`;\n\n// === RETRY CONFIG ===\n// 3 попытки, пауза 3 секунды между ними\nconst maxRetries = 3;\nconst delaySeconds = 3;\n\nlet lastError = '';\n\nfor (let attempt = 1; attempt <= maxRetries; attempt++) {\n  try {\n    // Скачиваем аудио: -x извлечь аудио, --audio-format mp3 конвертировать в mp3\n    execSync(`yt-dlp -x --audio-format mp3 -o \"${outputPath}\" \"${url}\"`, {\n      timeout: 300000 // таймаут 5 минут\n    });\n\n    return [{\n      json: {\n        success: true,\n        filePath: outputPath,\n        url: url,\n        id: id\n      }\n    }];\n  } catch (error) {\n    lastError = error.message;\n    // === RETRY BACKOFF ===\n    // Если есть ещё попытки — ждём перед следующей\n    if (attempt < maxRetries) {\n      execSync(`sleep ${delaySeconds}`);\n    }\n  }\n}\n\n// Все попытки исчерпаны — бросаем ошибку, чтобы сработал Error Workflow\nthrow new Error(`yt-dlp failed after ${maxRetries} attempts: ${lastError}`);"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        -96
+      ],
+      "id": "77c5c7aa-fba5-4744-85e4-9edda22cf5c0",
+      "name": "Download audio"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"error\": \"Field 'url' is required\"}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        384,
+        208
+      ],
+      "id": "cce30b29-e3d3-4f62-9270-ca4d6678e1e6",
+      "name": "error response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"status\": \"ok\", \"message\": \"URL received\"}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        384,
+        -96
+      ],
+      "id": "933258b9-9c29-4b32-9e3e-7d60f2bdb084",
+      "name": "Respond 200"
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-5-mini",
+        "options": {
+          "temperature": 0.7
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1072,
+        224
+      ],
+      "id": "8b560442-ee6d-477e-9510-b4f3cb6f03ab",
+      "name": "OpenRouter Chat Model",
+      "credentials": {
+        "openRouterApi": {
+          "id": "pZP3N4oD4MBRron3",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Получает расшифровку аудио в текст с whisper\n\n**1. Почему Code node, а не HTTP Request:**\nWhisper API требует отправки локального аудиофайла как `multipart/form-data` — HTTP Request узел не может напрямую читать файлы с диска контейнера.\n\n**2. Retry-логика:**\nНастраивается в строке `const retries = [5, 15, 30]` — массив пауз в секундах между попытками. Кол-во элементов = кол-во повторов, значения = задержки.",
+        "height": 640,
+        "width": 256
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        784,
+        -576
+      ],
+      "id": "546d1687-f035-4b2b-8aff-13b15d76402c",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "news_posts",
+          "mode": "list",
+          "cachedResultName": "news_posts"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "source_url": "={{ $('Validate URL').first().json.body.url }}",
+            "transcript": "={{ $('Request to groq whisper').first().json.transcript }}",
+            "post_text": "={{ $('AI Generate Post').first().json.message.content }}",
+            "status": "published"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "source_url",
+              "displayName": "source_url",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "transcript",
+              "displayName": "transcript",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "post_text",
+              "displayName": "post_text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1376,
+        -96
+      ],
+      "id": "c401af13-d4f1-48f8-b55d-679a3251d088",
+      "name": "Insert rows in a table",
+      "credentials": {
+        "postgres": {
+          "id": "cP5XbnPiHuNAOZkz",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "90e713f5-8397-4154-8fca-cf8af4c3cfee",
+              "leftValue": "={{ $json.body.url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        144,
+        0
+      ],
+      "id": "40a1c4ad-f2da-4ce8-8f8e-7ba4dea2ff8c",
+      "name": "Validate URL"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Транскрипция: {{ $json.transcript }}\n\nСсылка на источник: {{ $json.url }}",
+        "options": {
+          "systemMessage": "Ты — опытный редактор новостного Telegram-канала. Твоя задача — превращать сырые транскрипции видео в готовые к публикации новостные посты.\n\n## Формат поста\n\nПост строится строго по следующей структуре:\n\n1. ЗАГОЛОВОК — одна строка, жирный текст. Начинается с одного подходящего эмодзи. Кратко передаёт суть новости. Не более 80 символов. Без кликбейта, но привлекает внимание.\n\n2. ТЕКСТ — краткое изложение новости в 2–4 предложениях. Каждое предложение несёт новую информацию. Между заголовком и текстом — пустая строка.\n\n3. ХЭШТЕГИ — от 3 до 5 штук, через пробел, в одной строке. Релевантные теме, на русском языке. Перед хэштегами — пустая строка.\n\n4. ССЫЛКА — текст \"Источник: \" и ссылка на оригинал. Перед ссылкой — пустая строка.\n\n## Правила написания\n\n- Пиши строго на русском языке.\n- Используй только факты из транскрипции. Никогда не додумывай, не добавляй информацию, которой нет в исходном тексте.\n- Стиль: информационный, нейтральный, без оценочных суждений. Как в новостных агентствах (ТАСС, РИА).\n- Предложения короткие и ясные. Одна мысль — одно предложение.\n- Не используй канцеляризмы: \"в рамках\", \"на сегодняшний день\", \"является\", \"осуществлять\". Пиши живым, но деловым языком.\n- Не начинай предложения со слов \"Также\", \"Кроме того\", \"Стоит отметить\".\n- Числа до десяти пиши словами, от 10 — цифрами.\n- Имена собственные, названия компаний и продуктов передавай точно, как в транскрипции.\n- Не используй кавычки-ёлочки в Telegram (они плохо отображаются). Используй обычные \"кавычки\".\n- Форматирование Telegram: <b>жирный</b>, <i>курсив</i>. Жирным выделяй только заголовок.\n- Никогда не используй символы * или _ для форматирования. Только HTML-теги.\n- Общий объём поста — не более 900 символов (включая хэштеги и ссылку).\n\n## Критически важно: ты пишешь как журналист, а не как пересказчик\n\n- Транскрипция — это твой ИСТОЧНИК информации, а не текст для пересказа. Извлеки из неё факты и напиши новость самостоятельно.\n- НИКОГДА не ссылайся на источник внутри текста. Запрещены любые формулировки вроде: \"в ролике говорят\", \"по словам автора видео\", \"как рассказали в видео\", \"в сюжете упоминается\", \"спикер отметил\". Ты пишешь новость, а не рецензию на видео.\n- Пиши так, будто ты сам узнал эти факты. Вместо \"в ролике говорят, что в Москве продали квартиру\" пиши \"В Москве продали квартиру\".\n- Не упоминай слова: \"ролик\", \"видео\", \"автор\", \"блогер\", \"спикер\", \"рассказал\", \"показал\" применительно к источнику.\n\n## Особые случаи\n\n- Если транскрипция бессмысленная, пустая или неразборчивая — верни ровно одну строку: \"Не удалось создать пост: транскрипция некорректна\" и ничего больше.\n- Если в транскрипции несколько тем — выбери одну, самую значимую.\n- Если транскрипция на другом языке — всё равно пиши пост на русском.\n\n## Пример результата\n\n🚀 <b>SpaceX успешно посадила ракету на морскую платформу</b>\n\nКомпания SpaceX провела успешный запуск ракеты Falcon 9 с мыса Канаверал. Первая ступень вернулась и села на плавучую платформу в Атлантическом океане. Это 50-я успешная посадка в истории компании. На борту находились 23 спутника Starlink.\n\n#SpaceX #Falcon9 #космос #Starlink\n\nИсточник: https://youtube.com/watch?v=example"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1072,
+        -96
+      ],
+      "id": "206254ea-375f-4542-9fb5-e4a19dce3e74",
+      "name": "AI Generate Post",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "chatId": "put_your_chat_id_here",
+        "text": "={{ $('AI Generate Post').item.json.output }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1584,
+        -96
+      ],
+      "id": "9d77d1a5-8e79-45f3-be88-4f24c68d4433",
+      "name": "Send a text message",
+      "webhookId": "1c9858e3-e0ab-46a9-afb8-98e017192909",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "telegramApi": {
+          "id": "kN7lWuDbuAinUGFH",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Скачивает аудио с YouTube\n\n** Retry-логика:**\nНастраивается в строках `const maxRetries = 3` (количество попыток) и `const delaySeconds = 3`",
+        "height": 400,
+        "width": 224
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        544,
+        -336
+      ],
+      "id": "878edf60-5211-421f-ba41-2a154dff8be3",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const { execSync } = require('child_process');\n\nconst filePath = $('Download audio').first().json.filePath;\n\ntry {\n  execSync(`rm -f \"${filePath}\"`);\n  return [{ json: { cleaned: true, filePath: filePath } }];\n} catch (error) {\n  return [{ json: { cleaned: false, error: error.message } }];\n}\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        -96
+      ],
+      "id": "8b63776a-bc63-432a-bcef-3cb2b9974a8c",
+      "name": "Cleanup File"
+    },
+    {
+      "parameters": {
+        "content": "## Удалить MP3 файлы\n\nУдаляет скачанный аудиофайл после успешной обработки.\nПуть берётся из узла Download audio (`filePath`).\nПредотвращает накопление файлов в `/home/node/downloads/`.",
+        "height": 432,
+        "width": 224
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1744,
+        -368
+      ],
+      "id": "8a74d04e-3fd5-4f83-8a0b-43346e561cf9",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## LLM\n\n**gpt-5-mini** — оптимальный по соотношению цена/качество",
+        "height": 288
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1008,
+        80
+      ],
+      "id": "699c55bd-3a37-46db-a576-04647330fee0",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## Генерирует новость на основе текста\n",
+        "height": 304,
+        "width": 256
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1056,
+        -240
+      ],
+      "id": "72a80da0-4405-44cf-9c7d-f2dcfcef7e4c",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "## Записывает данные в таблицу\n",
+        "height": 304,
+        "width": 192
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1328,
+        -240
+      ],
+      "id": "f98d2e23-1107-41ce-879c-097ec9ff78aa",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "content": "## Отправляет новость в telegram\n",
+        "height": 304,
+        "width": 192
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1536,
+        -240
+      ],
+      "id": "dd8ca0dd-5710-4d1b-86e0-e005199dd196",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "content": "## Проверяет наличие поля url",
+        "height": 336
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        80,
+        -128
+      ],
+      "id": "03f26a3f-7596-4b90-a7a0-93124c0f4019",
+      "name": "Sticky Note7"
+    },
+    {
+      "parameters": {
+        "content": "## Возвращает 400 если url отсутствует",
+        "height": 288,
+        "width": 192
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        336,
+        80
+      ],
+      "id": "17b48c66-7d7d-43cd-8fba-77284a9498ef",
+      "name": "Sticky Note8"
+    },
+    {
+      "parameters": {
+        "content": "## Возвращает 200 если url есть",
+        "height": 288,
+        "width": 192
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        336,
+        -224
+      ],
+      "id": "bf182315-0f44-43ba-a1a5-7f09c1a61eaa",
+      "name": "Sticky Note9"
+    },
+    {
+      "parameters": {
+        "content": "## Webhook\n\nПринимает POST-запрос с JSON (url, id)",
+        "height": 336,
+        "width": 224
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        -128
+      ],
+      "id": "50760da2-f006-4165-bcea-436360e91545",
+      "name": "Sticky Note10"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download audio": {
+      "main": [
+        [
+          {
+            "node": "Request to groq whisper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 200": {
+      "main": [
+        [
+          {
+            "node": "Download audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Request to groq whisper": {
+      "main": [
+        [
+          {
+            "node": "AI Generate Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Generate Post",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate URL": {
+      "main": [
+        [
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "error response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Generate Post": {
+      "main": [
+        [
+          {
+            "node": "Insert rows in a table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert rows in a table": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a text message": {
+      "main": [
+        [
+          {
+            "node": "Cleanup File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "L3D81gsE1SAP3GTG",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "ddead539-7201-43e7-a7a9-e99d8a2b0c4b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "8fb42e878ce93e060d2d5a918a5a100d8564f8a06dfa1510d6ddf7d720d5fa9a"
+  },
+  "id": "fxbEQPvSVoH16UCb",
+  "tags": []
+}
