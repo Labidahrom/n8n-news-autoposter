@@ -1,0 +1,54 @@
+version: '3.8'
+
+volumes:
+  n8n_storage:
+  db_storage:
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - db_storage:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h localhost -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  n8n:
+    build:
+      context: .
+      dockerfile: Dockerfile.n8n
+    restart: always
+    ports:
+      - "127.0.0.1:5678:5678"
+      # Ошибка безопасности, сделал так же как с postgres
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+       # опечатка HSOT вместо HOST
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - GENERIC_TIMEZONE=Europe/Moscow
+      - NODE_FUNCTION_ALLOW_EXTERNAL=*
+      - NODE_FUNCTION_ALLOW_BUILTIN=child_process
+      - NODES_EXCLUDE=[]
+    volumes:
+      - n8n_storage:/home/node/.n8n
+      # volume n8n_storage был объявлен, но не подключён. Добавил хранилище для данных n8n.
+      - ./downloads:/home/node/downloads
+    depends_on:
+      postgres:
+        condition: service_healthy

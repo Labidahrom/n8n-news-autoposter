@@ -1,0 +1,20 @@
+FROM alpine:latest AS alpine
+
+FROM n8nio/n8n:latest
+
+# Копируем apk из чистого Alpine, т.к. в новых образах n8n он удалён
+COPY --from=alpine /sbin/apk /sbin/apk
+COPY --from=alpine /usr/lib/libapk.so* /usr/lib/
+
+USER root
+
+RUN apk add --no-cache \
+    python3 \
+    py3-pip \
+    ffmpeg \
+    curl \
+    && pip3 install --break-system-packages yt-dlp
+# curl добавлен для отправки аудиофайлов в Groq Whisper API
+
+USER node
+
