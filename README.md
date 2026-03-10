@@ -54,49 +54,57 @@ docker compose up -d
 
 7. Опубликовать оба workflow.
 
-## Использование
+### Использование
 
 Отправить POST-запрос:
 
+```bash
 curl -X POST http://localhost:5678/webhook/news \
   -H "Content-Type: application/json" \
   -d '{"url": "https://www.youtube.com/watch?v={VIDEO_ID}", "id": "{UNIQUE_ID}"}'
+```
 
-- {VIDEO_ID} — заменить на ID реального YouTube-видео (например, dQw4w9WgXcQ)
-- {UNIQUE_ID} — произвольный идентификатор, используется как имя файла (например, news1)
+Где:
+- `{VIDEO_ID}` — ID YouTube-видео (например, `dQw4w9WgXcQ`)
+- `{UNIQUE_ID}` — произвольный идентификатор, используется как имя файла (например, `news1`)
 
-## Переменные окружения (.env.example)
+Ответ при успехе: `{"status": "ok", "message": "URL received"}`
+Ответ при отсутствии url: `{"error": "Field 'url' is required"}` (HTTP 400)
 
-# PostgreSQL (обязательно — используются Docker и n8n)
+## Переменные окружения
+
+Скопировать `.env.example` в `.env` и заполнить значения:
+
+```env
+# PostgreSQL (обязательно)
 POSTGRES_USER=n8n
 POSTGRES_PASSWORD=your_password_here
 POSTGRES_DB=n8n
 
-# n8n (обязательно — используются Docker и n8n)
+# n8n (обязательно)
 N8N_ENCRYPTION_KEY=your_encryption_key_here
 WEBHOOK_URL=https://your-domain.com/
 
 # Ключи ниже НЕ подтягиваются в n8n автоматически.
-# Их нужно настроить вручную внутри n8n (Credentials).
-# Здесь они указаны для справки и документации.
+# Настроить вручную внутри n8n (Credentials).
 
-# OpenRouter (настроить в n8n → Credentials → OpenRouter)
+# OpenRouter (n8n → Credentials → OpenRouter)
 OPENAI_API_KEY=sk-your-key-here
 
 # Groq Whisper (вставить в код узла "Request to groq whisper")
 GROQ_API_KEY=gsk-your-key-here
 
-# Telegram (настроить в n8n → Credentials → Telegram)
+# Telegram (n8n → Credentials → Telegram)
 TELEGRAM_BOT_TOKEN=your-bot-token-here
 TELEGRAM_CHAT_ID=your-chat-id-here
+```
 
 ## Особенности реализации
 
-Hardened Docker-образ: начиная с n8n 2.0 из образа удалён пакетный менеджер apk. В Dockerfile.n8n он копируется из чистого Alpine-образа через multi-stage build.
+**Hardened Docker-образ:** начиная с n8n 2.0 из образа удалён пакетный менеджер `apk`. В `Dockerfile.n8n` он копируется из чистого Alpine-образа через multi-stage build.
 
-child_process: в n8n 2.0 модуль заблокирован по умолчанию. Разблокируется через переменную NODE_FUNCTION_ALLOW_BUILTIN=child_process.
+**child_process:** в n8n 2.0 модуль заблокирован по умолчанию. Разблокируется через переменную `NODE_FUNCTION_ALLOW_BUILTIN=child_process`.
 
-Whisper через Code node: Groq Whisper API требует отправки локального аудиофайла как multipart/form-data — стандартный HTTP Request узел не может читать файлы с диска контейнера, поэтому используется curl внутри Code node.
+**Whisper через Code node:** Groq Whisper API требует отправки локального аудиофайла как `multipart/form-data` — стандартный HTTP Request узел не может читать файлы с диска контейнера, поэтому используется `curl` внутри Code node.
 
-Retry-логика: yt-dlp — 3 попытки с паузой 3с; Whisper — 4 попытки с backoff 5/15/30с; Telegram — 2 попытки; LLM — встроенный retry n8n.
-
+**Retry-логика:** yt-dlp — 3 попытки с паузой 3с; Whisper — 4 попытки с backoff 5/15/30с; Telegram — 2 попытки; LLM — встроенный retry n8n.
