@@ -110,10 +110,11 @@
     },
     {
       "parameters": {
-        "chatId": "put_your_chat_id_here",
-        "text": "=⚠️ Ошибка в workflow\n\nУзел: {{ $('Parse Error Data').first().json.nodeName }}\nОшибка: {{ $('Parse Error Data').first().json.errorMessage }}",
+        "chatId": "put_your_chatid_here",
+        "text": "=⚠️ Ошибка в workflow\n\nУзел: {{ $('Parse Error Data').first().json.nodeName }}",
         "additionalFields": {
-          "appendAttribution": false
+          "appendAttribution": false,
+          "parse_mode": "HTML"
         }
       },
       "type": "n8n-nodes-base.telegram",
@@ -260,7 +261,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "e5a92e0e-4152-4a77-af9e-c5d572cb2ab8",
+  "versionId": "b5696d53-9e7b-40c1-833b-9ad0b4ce20a3",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "8fb42e878ce93e060d2d5a918a5a100d8564f8a06dfa1510d6ddf7d720d5fa9a"
