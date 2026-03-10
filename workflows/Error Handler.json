@@ -1,0 +1,270 @@
+{
+  "name": "Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        560,
+        -208
+      ],
+      "id": "a3242cf6-31a7-4fa5-9af8-8a6b0288b26a",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "error_logs",
+          "mode": "list",
+          "cachedResultName": "error_logs"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "node_name": "={{ $json.nodeName }}",
+            "error_message": "={{ $json.errorMessage }}",
+            "input_data": "={{ $json.inputData }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "node_name",
+              "displayName": "node_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error_message",
+              "displayName": "error_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "input_data",
+              "displayName": "input_data",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "object",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        960,
+        -208
+      ],
+      "id": "b2cced81-c87d-4af6-8b07-ac012127d363",
+      "name": "Insert rows in a table",
+      "credentials": {
+        "postgres": {
+          "id": "cP5XbnPiHuNAOZkz",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nconst nodeName = data.execution?.lastNodeExecuted || 'unknown';\nconst errorMessage = data.execution?.error?.message || 'Unknown error';\nconst workflowName = data.workflow?.name || 'unknown';\n\nreturn [{\n  json: {\n    nodeName: nodeName,\n    errorMessage: errorMessage,\n    inputData: JSON.stringify({\n      workflowName: workflowName,\n      executionId: data.execution?.id,\n      mode: data.execution?.mode\n    })\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        768,
+        -208
+      ],
+      "id": "af6457c0-4abe-41d7-9657-ad0248f79412",
+      "name": "Parse Error Data"
+    },
+    {
+      "parameters": {
+        "jsCode": "const { execSync } = require('child_process');\n\ntry {\n  // Удаляем все mp3 из папки downloads\n  execSync('rm -f /home/node/downloads/*.mp3');\n  return [{ json: { cleaned: true } }];\n} catch (error) {\n  return [{ json: { cleaned: false, error: error.message } }];\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        -208
+      ],
+      "id": "d4d22701-c1d9-4e5c-adbd-45a7eae2477e",
+      "name": "Cleanup file"
+    },
+    {
+      "parameters": {
+        "chatId": "put_your_chat_id_here",
+        "text": "=⚠️ Ошибка в workflow\n\nУзел: {{ $('Parse Error Data').first().json.nodeName }}\nОшибка: {{ $('Parse Error Data').first().json.errorMessage }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1184,
+        -208
+      ],
+      "id": "478e9644-f7ce-4123-96de-a58726f8f976",
+      "name": "Send a text message",
+      "webhookId": "fb76f57b-f41a-47c5-8137-e939d718dcb7",
+      "credentials": {
+        "telegramApi": {
+          "id": "kN7lWuDbuAinUGFH",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Удаляет mp3 файлы\n\nДубликат очистки для случаев, когда основной workflow упал на середине.\nУдаляет **все** `.mp3` из `/home/node/downloads/`, т.к. при ошибке конкретный `filePath` недоступен.\nГарантирует, что файлы не копятся даже при сбоях. ",
+        "height": 448,
+        "width": 224
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        -496
+      ],
+      "id": "e6a3c3af-abea-4d49-9b41-ff70e7f75ae0",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Отправляет сообщение об ошибке в Telegram",
+        "height": 336,
+        "width": 208
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        -384
+      ],
+      "id": "29392b93-3b5d-474c-a709-4d126f9c66d5",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Записывает данные об ошибке в таблицу\n",
+        "height": 336,
+        "width": 192
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        912,
+        -384
+      ],
+      "id": "68ced72c-301a-4951-a348-5376a3fdaed4",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "content": "## Парсит данные об ошибке\n",
+        "height": 336,
+        "width": 160
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        736,
+        -384
+      ],
+      "id": "a05ef0ee-23ef-4186-8cd9-195e4f621a56",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "content": "## Срабатывает при ошибке в News Autoposter (yt-dlp → Whisper → AI → Telegram)",
+        "height": 336
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        480,
+        -384
+      ],
+      "id": "5993c843-2258-4d0a-89e4-e8d721cd6ccb",
+      "name": "Sticky Note7"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parse Error Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert rows in a table": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Error Data": {
+      "main": [
+        [
+          {
+            "node": "Insert rows in a table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a text message": {
+      "main": [
+        [
+          {
+            "node": "Cleanup file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "e5a92e0e-4152-4a77-af9e-c5d572cb2ab8",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "8fb42e878ce93e060d2d5a918a5a100d8564f8a06dfa1510d6ddf7d720d5fa9a"
+  },
+  "id": "L3D81gsE1SAP3GTG",
+  "tags": []
+}
